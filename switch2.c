@@ -1132,6 +1132,11 @@ static gboolean switch2_transport_event(gint fd, GIOCondition condition,
 	payload = record + sizeof(*header);
 
 	if (header->type == SWITCH2_TRANSPORT_TX_OUTPUT) {
+		/* The GameCube controller has no HD actuator and powers off when
+		 * its vibration characteristic is written.  Its rumble goes
+		 * through the command channel (preset command 0x0a/0x02). */
+		if (session->handles.product == SWITCH2_GC_PRODUCT)
+			return G_SOURCE_CONTINUE;
 		if (payload_size != 17 || !session->handles.vibration)
 			return G_SOURCE_CONTINUE;
 		if (!bt_gatt_client_write_without_response(session->gatt,
@@ -1148,6 +1153,12 @@ static gboolean switch2_transport_event(gint fd, GIOCondition condition,
 	if (header->type == SWITCH2_TRANSPORT_TX_COMMAND) {
 		if (payload_size < 4)
 			goto failed;
+		if (session->pending && payload[0] == 0x0a && payload[3] == 0x02) {
+			/* Rumble preset retrigger: harmless to drop. */
+			DBG("switch2: %s dropping rumble preset, command pending",
+			    session->address);
+			return G_SOURCE_CONTINUE;
+		}
 		if (session->pending) {
 			error("switch2: %s kernel issued overlapping GATT command",
 			      session->address);
