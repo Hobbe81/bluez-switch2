@@ -1,3 +1,14 @@
+> **Fork note: NSO GameCube controller support**
+>
+> This fork of [novakpetya/bluez-switch2](https://github.com/novakpetya/bluez-switch2) adds the NSO GameCube controller (057e:2073) to the plugin on the `gc-support` branch:
+> - GC product and its native 0x0a side report.
+> - Rumble through the command channel (command 0x0a, subcommand 0x02), because writing the controller's vibration characteristic powers it off.
+> - A guard that drops a rumble preset command while another GATT command is pending.
+>
+> It needs the matching kernel driver from [Hobbe81/linux-switch2](https://github.com/Hobbe81/linux-switch2/tree/gc-support) (branch `gc-support`).
+>
+> **Status:** tested on one controller only, with Linux 7.0.0-42-generic and a BlueZ 5.72 build of the plugin (using a local compatibility patch that is not included here). It has not been built against BlueZ 5.87. Wake-on-button is untested. Upstream does not accept pull requests, so the changes are published here. The changes were written with Claude Code.
+
 # BlueZ Joy-Con 2 transport
 
 Bluetooth LE transport support for Nintendo Switch 2 Joy-Con controllers on Linux.
