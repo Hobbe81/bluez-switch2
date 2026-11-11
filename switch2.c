@@ -47,6 +47,7 @@
 #define SWITCH2_REPLY_UUID   "c765a961-d9d8-4d36-a20a-5315b111836a"
 #define SWITCH2_LEFT_INPUT_UUID    "cc1bbbb5-7354-4d32-a716-a81cb241a32a"
 #define SWITCH2_RIGHT_INPUT_UUID   "d5a9e01e-2ffc-4cca-b20c-8b67142bf442"
+#define SWITCH2_GC_INPUT_UUID      "8261cba1-9435-420c-84d6-f0c75a2c8e4d"
 #define SWITCH2_LEFT_VIBRATION_UUID  "289326cb-a471-485d-a8f4-240c14f18241"
 #define SWITCH2_RIGHT_VIBRATION_UUID "fa19b0fb-cd1f-46a7-84a1-bbb09e00c149"
 #define SWITCH2_BOOTSTRAP_UUID "00c5af5d-1964-4e30-8f51-1956f96bd280"
@@ -80,11 +81,13 @@
 #define SWITCH2_VENDOR 0x057e
 #define SWITCH2_LEFT_PRODUCT 0x2067
 #define SWITCH2_RIGHT_PRODUCT 0x2066
+#define SWITCH2_GC_PRODUCT 0x2073
 #define SWITCH2_MANUFACTURER 0x0553
 
 #define SWITCH2_REPORT_COMMON 0x05
 #define SWITCH2_REPORT_LEFT 0x07
 #define SWITCH2_REPORT_RIGHT 0x08
+#define SWITCH2_REPORT_GC 0x0a
 
 #define SWITCH2_INPUT_SIZE 63
 #define SWITCH2_MAX_CONTROL 255
@@ -196,6 +199,25 @@ static bool switch2_uuid_equal(const bt_uuid_t *uuid, const char *expected)
 	return !strcasecmp(value, expected);
 }
 
+static bool switch2_product_supported(uint16_t product)
+{
+	return product == SWITCH2_LEFT_PRODUCT ||
+		product == SWITCH2_RIGHT_PRODUCT ||
+		product == SWITCH2_GC_PRODUCT;
+}
+
+static char switch2_product_tag(uint16_t product)
+{
+	switch (product) {
+	case SWITCH2_RIGHT_PRODUCT:
+		return 'R';
+	case SWITCH2_GC_PRODUCT:
+		return 'G';
+	default:
+		return 'L';
+	}
+}
+
 static void switch2_scan_characteristic(struct gatt_db_attribute *attr,
 					 void *user_data)
 {
@@ -226,6 +248,10 @@ static void switch2_scan_characteristic(struct gatt_db_attribute *attr,
 		handles->side_input = value_handle;
 		handles->report_id = SWITCH2_REPORT_RIGHT;
 		handles->product = SWITCH2_RIGHT_PRODUCT;
+	} else if (switch2_uuid_equal(&uuid, SWITCH2_GC_INPUT_UUID)) {
+		handles->side_input = value_handle;
+		handles->report_id = SWITCH2_REPORT_GC;
+		handles->product = SWITCH2_GC_PRODUCT;
 	}
 }
 
@@ -344,8 +370,7 @@ static bool switch2_seed_gatt_db(struct btd_device *device, uint16_t product)
 	if (switch2_find_handles(device, &handles))
 		return true;
 
-	if (product != SWITCH2_LEFT_PRODUCT &&
-	    product != SWITCH2_RIGHT_PRODUCT)
+	if (!switch2_product_supported(product))
 		return false;
 
 	db = btd_device_get_gatt_db(device);
@@ -380,8 +405,16 @@ static bool switch2_seed_gatt_db(struct btd_device *device, uint16_t product)
 	if (!bootstrap || !vendor)
 		goto fail;
 
+	/*
+	 * GameCube (0x2073): the controller-specific input UUID is documented.
+	 * Its vibration UUID is not, so the Joy-Con left UUID is used as a
+	 * placeholder for the handle-0x0012 attribute; only the handle matters
+	 * to the kernel transport.
+	 */
 	side_uuid = product == SWITCH2_RIGHT_PRODUCT ?
-		SWITCH2_RIGHT_INPUT_UUID : SWITCH2_LEFT_INPUT_UUID;
+		SWITCH2_RIGHT_INPUT_UUID :
+		product == SWITCH2_GC_PRODUCT ?
+		SWITCH2_GC_INPUT_UUID : SWITCH2_LEFT_INPUT_UUID;
 	vibration_uuid = product == SWITCH2_RIGHT_PRODUCT ?
 		SWITCH2_RIGHT_VIBRATION_UUID : SWITCH2_LEFT_VIBRATION_UUID;
 
@@ -443,8 +476,8 @@ static bool switch2_seed_gatt_db(struct btd_device *device, uint16_t product)
 		goto fail;
 
 	ba2str(device_get_address(device), address);
-	info("switch2: seeded fixed Joy-Con 2 GATT cache for %s (%c)",
-	     address, product == SWITCH2_RIGHT_PRODUCT ? 'R' : 'L');
+	info("switch2: seeded fixed Switch 2 GATT cache for %s (%c)",
+	     address, switch2_product_tag(product));
 	return true;
 
 fail:
@@ -512,9 +545,7 @@ static bool switch2_is_known_device(struct btd_device *device)
 	vendor = btd_device_get_vendor(device);
 	product = btd_device_get_product(device);
 
-	return vendor == SWITCH2_VENDOR &&
-		(product == SWITCH2_LEFT_PRODUCT ||
-		 product == SWITCH2_RIGHT_PRODUCT);
+	return vendor == SWITCH2_VENDOR && switch2_product_supported(product);
 }
 
 static void switch2_autoconnect_disable(struct btd_adapter *adapter,
@@ -630,9 +661,7 @@ static void switch2_manufacturer_data(struct btd_adapter *adapter,
 	vendor = (uint16_t) data[3] | ((uint16_t) data[4] << 8);
 	product = (uint16_t) data[5] | ((uint16_t) data[6] << 8);
 
-	if (vendor != SWITCH2_VENDOR ||
-	    (product != SWITCH2_LEFT_PRODUCT &&
-	     product != SWITCH2_RIGHT_PRODUCT))
+	if (vendor != SWITCH2_VENDOR || !switch2_product_supported(product))
 		return;
 
 	if (!switch2_prepare_gatt(device, product)) {
@@ -1254,9 +1283,8 @@ static void switch2_device_resolved(struct btd_adapter *adapter,
 		return;
 	}
 
-	info("switch2: prepared direct kernel transport for %s Joy-Con 2 (%c)",
-	     session->address,
-	     handles.report_id == SWITCH2_REPORT_LEFT ? 'L' : 'R');
+	info("switch2: prepared direct kernel transport for %s Switch 2 controller (%c)",
+	     session->address, switch2_product_tag(handles.product));
 }
 
 static void switch2_device_added(struct btd_adapter *adapter,
